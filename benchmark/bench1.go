@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"mss"
 	"os"
 	"runtime"
 	"runtime/pprof"
 	"time"
+
+	"github.com/Ret-Samphis/mss"
 )
 
 type Type1 struct{ X int }

@@ -53,11 +53,14 @@ func (mss *MixedStructSlice) pushRow() (row int, base unsafe.Pointer) {
 	return
 }
 
+// Adds types of structs to store
 func (mss *MixedStructSlice) AddComponent(comp any) *MixedStructSlice {
 	mss.types = append(mss.types, reflect.TypeOf(comp))
 	return mss
 }
 
+// Build must be called after all desired AddComponent() calls
+// Build must be called before any Add() calls
 func (mss *MixedStructSlice) Build() {
 	newTypeFields := []reflect.StructField{}
 	for _, tt := range mss.types {
@@ -78,6 +81,9 @@ func (mss *MixedStructSlice) Build() {
 	}
 }
 
+// Adds a row to the slice
+// Must be called after Build()
+// Must be given full rows, and in order of how they were added with AddComponent()
 func (mss *MixedStructSlice) Add(comps ...any) {
 	if len(comps) != len(mss.types) {
 		panic("number of types given to AOS differs from AOS size")
@@ -93,6 +99,7 @@ func (mss *MixedStructSlice) Add(comps ...any) {
 	runtime.KeepAlive(mss.slice)
 }
 
+// Returns the column associated with the given type in the slice
 func ColOf[storedType any](mss *MixedStructSlice) int {
 	var val storedType
 	compType := reflect.TypeOf(val)
@@ -104,6 +111,7 @@ func ColOf[storedType any](mss *MixedStructSlice) int {
 	return -1
 }
 
+// Returns the struct of type storedType stored at index i
 func Index[storedType any](mss *MixedStructSlice, i int) (val *storedType) {
 	compType := reflect.TypeOf(val).Elem()
 	var index int
@@ -117,6 +125,8 @@ func Index[storedType any](mss *MixedStructSlice, i int) (val *storedType) {
 	return
 }
 
+// Returns the object stored at row r, and column c
+// This function does NOT check if the right type is stored at r,c
 func IndexRowCol[storedType any](mss *MixedStructSlice, r, c int) (val *storedType) {
 	return (*storedType)(unsafe.Add(mss.sh.Data, mss.stride*uintptr(r)+mss.offsets[c]))
 }
@@ -166,5 +176,7 @@ func dataPtr(x any) unsafe.Pointer {
 	return (*iface)(unsafe.Pointer(&x)).data
 }
 
+// Might be able to use normal memmove?
+//
 //go:linkname typedmemmove runtime.typedmemmove
 func typedmemmove(typ unsafe.Pointer, dst, src unsafe.Pointer)
