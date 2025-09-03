@@ -1,6 +1,7 @@
 package mss
 
 import (
+	"fmt"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -21,10 +22,12 @@ type MixedStructSlice struct {
 	sliceType  reflect.Type
 	slice      reflect.Value
 	sliceIface any
-	sh         *runtimeSlice
-	offsets    []uintptr
-	rtptrs     []unsafe.Pointer
-	stride     uintptr
+	slicertptr unsafe.Pointer
+
+	sh      *runtimeSlice
+	offsets []uintptr
+	rtptrs  []unsafe.Pointer
+	stride  uintptr
 }
 
 func (mss *MixedStructSlice) initHeadersFromSlice(s reflect.Value) {
@@ -79,6 +82,7 @@ func (mss *MixedStructSlice) Build() {
 		mss.offsets = append(mss.offsets, uintptr(mss.sliceType.Field(i).Offset))
 		mss.rtptrs = append(mss.rtptrs, rtypePtr(mss.sliceType.Field(i).Type))
 	}
+	mss.slicertptr = rtypePtr(mss.sliceType)
 }
 
 // Adds a row to the slice
@@ -99,6 +103,22 @@ func (mss *MixedStructSlice) Add(comps ...any) {
 	runtime.KeepAlive(mss.slice)
 }
 
+// Returns length of the slice
+func (mss *MixedStructSlice) Len() int {
+	return mss.sh.Len
+}
+
+// Removes a row from the given slice
+func (mss *MixedStructSlice) SwapDelete(row int) {
+	if row < 0 || row >= mss.Len() {
+		panic(fmt.Errorf("slice index %d out of bounds, max: %d", row, mss.Len()))
+	}
+	src := unsafe.Add(mss.sh.Data, mss.stride*uintptr(mss.Len()-1))
+	dst := unsafe.Add(mss.sh.Data, mss.stride*uintptr(row))
+	typedmemmove(mss.slicertptr, dst, src)
+	mss.sh.Len--
+}
+
 // Returns the column associated with the given type in the slice
 func ColOf[storedType any](mss *MixedStructSlice) int {
 	var val storedType
@@ -114,7 +134,7 @@ func ColOf[storedType any](mss *MixedStructSlice) int {
 // Returns the struct of type storedType stored at index i
 func Index[storedType any](mss *MixedStructSlice, i int) (val *storedType) {
 	compType := reflect.TypeOf(val).Elem()
-	var index int
+	index := -1
 	for v, tt := range mss.types {
 		if tt == compType {
 			index = v
@@ -128,6 +148,14 @@ func Index[storedType any](mss *MixedStructSlice, i int) (val *storedType) {
 // Returns the object stored at row r, and column c
 // This function does NOT check if the right type is stored at r,c
 func IndexRowCol[storedType any](mss *MixedStructSlice, r, c int) (val *storedType) {
+	if r < 0 || r >= mss.Len() || c < 0 || c >= len(mss.types) {
+		if r > 0 || r >= mss.Len() {
+			panic(fmt.Errorf("row %d out of range, max: %d", r, mss.Len()-1))
+		}
+		if c < 0 || c >= len(mss.types) {
+			panic(fmt.Errorf("column %d out of range, max: %d", c, len(mss.types)-1))
+		}
+	}
 	return (*storedType)(unsafe.Add(mss.sh.Data, mss.stride*uintptr(r)+mss.offsets[c]))
 }
 
