@@ -119,6 +119,18 @@ func (mss *MixedStructSlice) SwapDelete(row int) {
 	mss.sh.Len--
 }
 
+func (mss *MixedStructSlice) GetRowMut(row int) []*any {
+	storedStructs := []*any{}
+	for _, v := range mss.offsets {
+		storedStructs = append(storedStructs, (*any)(unsafe.Add(mss.sh.Data, mss.stride*uintptr(row)+v)))
+	}
+	return storedStructs
+}
+
+func (mss *MixedStructSlice) GetRow(row int) []any {
+	return []any{}
+}
+
 // Returns the column associated with the given type in the slice
 func ColOf[storedType any](mss *MixedStructSlice) int {
 	var val storedType
