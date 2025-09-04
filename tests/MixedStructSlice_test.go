@@ -30,5 +30,6 @@ func TestMixedStructSlice_GetRowMut(t *testing.T) {
 	outVel2 := mss.RowGetCopy[Velocity](out2, 1)
 	outPos.X += 10
 	outVel.Y += 30
-	_, _ = outPos2, outVel2
+	outs := testSlice.GetRow(0)
+	_, _, _ = outPos2, outVel2, outs
 }

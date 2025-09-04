@@ -26,6 +26,7 @@ type MixedStructSlice struct {
 
 	sh      *runtimeSlice
 	offsets []uintptr
+	sizes   []uintptr
 	rtptrs  []unsafe.Pointer
 	stride  uintptr
 }
@@ -96,8 +97,10 @@ func (mss *MixedStructSlice) Build() {
 	mss.initHeadersFromSlice(s)
 	mss.stride = uintptr(mss.sliceType.Size())
 	for i := range mss.sliceType.NumField() {
-		mss.offsets = append(mss.offsets, uintptr(mss.sliceType.Field(i).Offset))
-		mss.rtptrs = append(mss.rtptrs, rtypePtr(mss.sliceType.Field(i).Type))
+		f := mss.sliceType.Field(i)
+		mss.offsets = append(mss.offsets, uintptr(f.Offset))
+		mss.sizes = append(mss.sizes, uintptr(f.Type.Size()))
+		mss.rtptrs = append(mss.rtptrs, rtypePtr(f.Type))
 	}
 	mss.slicertptr = rtypePtr(mss.sliceType)
 }
@@ -135,6 +138,48 @@ func (mss *MixedStructSlice) SwapDelete(row int) {
 	dst := unsafe.Add(mss.sh.Data, mss.stride*uintptr(row))
 	typedmemmove(mss.slicertptr, dst, src)
 	mss.sh.Len--
+}
+
+var zerobase = struct{}{}
+
+func (mss *MixedStructSlice) GetRow(row int) []any {
+	if row < 0 || row >= mss.sh.Len {
+		panic("GetRow: row out of range")
+	}
+
+	const ps = unsafe.Sizeof(uintptr(0))
+	words := (mss.stride + ps - 1) / ps
+	buf := make([]uintptr, words)
+
+	src := unsafe.Add(mss.sh.Data, uintptr(row)*mss.stride)
+	dst := unsafe.Pointer(&buf[0])
+	memmove(dst, src, mss.stride)
+
+	out := make([]any, len(mss.offsets))
+	for i, off := range mss.offsets {
+		rt := mss.rtptrs[i]
+		sz := mss.sizes[i]
+
+		fieldPtr := unsafe.Add(dst, off)
+
+		ef := (*eface)(unsafe.Pointer(&out[i]))
+		ef.typ = rt
+
+		switch {
+		case sz == 0:
+			ef.data = unsafe.Pointer(&zerobase)
+
+		case sz <= ps:
+
+			var word uintptr
+			memmove(unsafe.Pointer(&word), fieldPtr, sz)
+			ef.data = unsafe.Pointer(word)
+
+		default:
+			ef.data = fieldPtr
+		}
+	}
+	return out
 }
 
 func NewRowViewMut(mss *MixedStructSlice) RowViewMut {
@@ -278,3 +323,6 @@ func dataPtr(x any) unsafe.Pointer {
 //
 //go:linkname typedmemmove runtime.typedmemmove
 func typedmemmove(typ unsafe.Pointer, dst, src unsafe.Pointer)
+
+//go:linkname memmove runtime.memmove
+func memmove(dst, src unsafe.Pointer, n uintptr)
