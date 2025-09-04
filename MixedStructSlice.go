@@ -74,6 +74,11 @@ func (mss *MixedStructSlice) AddComponent(comp any) *MixedStructSlice {
 	return mss
 }
 
+func (mss *MixedStructSlice) AddComponentFromType(comp reflect.Type) *MixedStructSlice {
+	mss.types = append(mss.types, comp)
+	return mss
+}
+
 // Build must be called after all desired AddComponent() calls
 // Build must be called before any Add() calls
 func (mss *MixedStructSlice) Build() {
