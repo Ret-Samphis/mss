@@ -30,6 +30,18 @@ type MixedStructSlice struct {
 	stride  uintptr
 }
 
+type RowViewMut struct {
+	mss *MixedStructSlice
+	row int
+}
+
+type RowViewCopy struct {
+	mss    *MixedStructSlice
+	row    int
+	bufrow int
+	buffer []uintptr
+}
+
 func (mss *MixedStructSlice) initHeadersFromSlice(s reflect.Value) {
 	mss.slice = s
 	mss.sliceIface = s.Interface()
@@ -88,12 +100,12 @@ func (mss *MixedStructSlice) Build() {
 // Adds a row to the slice
 // Must be called after Build()
 // Must be given full rows, and in order of how they were added with AddComponent()
-func (mss *MixedStructSlice) Add(comps ...any) {
+func (mss *MixedStructSlice) Add(comps ...any) int {
 	if len(comps) != len(mss.types) {
 		panic("number of types given to AOS differs from AOS size")
 	}
 	//aos.slice = reflect.Append(aos.slice, reflect.Zero(aos.sliceType))
-	_, base := mss.pushRow()
+	row, base := mss.pushRow()
 
 	for col, comp := range comps {
 		dst := unsafe.Add(base, mss.offsets[col])
@@ -101,6 +113,7 @@ func (mss *MixedStructSlice) Add(comps ...any) {
 		typedmemmove(mss.rtptrs[col], dst, src)
 	}
 	runtime.KeepAlive(mss.slice)
+	return row
 }
 
 // Returns length of the slice
@@ -119,16 +132,56 @@ func (mss *MixedStructSlice) SwapDelete(row int) {
 	mss.sh.Len--
 }
 
-func (mss *MixedStructSlice) GetRowMut(row int) []*any {
-	storedStructs := []*any{}
-	for _, v := range mss.offsets {
-		storedStructs = append(storedStructs, (*any)(unsafe.Add(mss.sh.Data, mss.stride*uintptr(row)+v)))
+func NewRowViewMut(mss *MixedStructSlice) RowViewMut {
+	return RowViewMut{
+		mss: mss,
+		row: 0,
 	}
-	return storedStructs
 }
 
-func (mss *MixedStructSlice) GetRow(row int) []any {
-	return []any{}
+func (rv *RowViewMut) SetIndex(i int) {
+	if i < 0 || i >= rv.mss.Len() {
+		panic(fmt.Errorf("index out of range %d >= %d", i, rv.mss.Len()))
+	}
+	rv.row = i
+}
+
+func (rv *RowViewMut) Next() {
+	if rv.row < rv.mss.Len()-1 {
+		rv.row++
+	}
+}
+
+func NewRowViewCopy(mss *MixedStructSlice) RowViewCopy {
+	const ps = unsafe.Sizeof(uintptr(0))
+	return RowViewCopy{
+		mss:    mss,
+		row:    0,
+		bufrow: -1,
+		buffer: make([]uintptr, (mss.stride+ps-1)/ps),
+	}
+}
+
+func (rv *RowViewCopy) SetIndex(i int) {
+	if i < 0 || i >= rv.mss.Len() {
+		panic(fmt.Errorf("index out of range %d >= %d", i, rv.mss.Len()))
+	}
+	rv.row = i
+}
+
+func (rv *RowViewCopy) Next() {
+	if rv.row < rv.mss.Len()-1 {
+		rv.row++
+	}
+}
+
+func RowGet[T any](r RowViewMut, col int) *T {
+	return IndexRowCol[T](r.mss, r.row, col)
+}
+
+func RowGetCopy[T any](r RowViewCopy, col int) T {
+	tt := *((*T)(unsafe.Add(r.mss.sh.Data, r.mss.stride*uintptr(r.row)+r.mss.offsets[col])))
+	return tt
 }
 
 // Returns the column associated with the given type in the slice
